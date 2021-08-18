@@ -1,11 +1,11 @@
 extern crate proc_macro;
-use proc_macro::TokenStream;
+extern crate proc_macro2;
 use proc_macro2::Span;
 use quote::quote;
 use syn::{parse_macro_input, DeriveInput, Ident};
 
-#[proc_macro_derive(Agordo, attributes(vojo))]
-pub fn auto_config_derive(input: TokenStream) -> TokenStream {
+#[proc_macro_derive(AutoConfig, attributes(location))]
+pub fn auto_config_derive(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
     let ast = parse_macro_input!(input as DeriveInput);
 
     let ident = &ast.ident;
@@ -14,19 +14,19 @@ pub fn auto_config_derive(input: TokenStream) -> TokenStream {
     let path_attr = ast
         .attrs
         .iter()
-        .filter(|a| a.path.get_ident().unwrap().to_string() == "vojo")
+        .filter(|a| a.path.get_ident().unwrap().to_string() == "location")
         .next()
-        .unwrap_or_else(|| panic!("缺失 #[vojo = ?] 的附加属性"));
+        .unwrap_or_else(|| panic!("缺失 #[location = ?] 的附加属性"));
     let path_value: String = match path_attr
         .parse_meta()
         .unwrap_or_else(|_| panic!("Failed to parse meta"))
     {
         syn::Meta::NameValue(value) => match value.lit {
             syn::Lit::Str(i) => i.value().to_string(),
-            _ => panic!("vojo值的类型不支持"),
+            _ => panic!("location值的类型不支持"),
         },
         _ => {
-            panic!("vojo值的类型不支持")
+            panic!("location值的类型不支持")
         }
     };
 
@@ -91,5 +91,18 @@ pub fn auto_config_derive(input: TokenStream) -> TokenStream {
         }
       }
    }.into();
-    TokenStream::from(expanded)
+   proc_macro::TokenStream::from(expanded)
+}
+
+use proc_macro2::TokenStream;
+
+#[proc_macro_attribute]
+pub fn basic_derive(_metadata: proc_macro::TokenStream, input: proc_macro::TokenStream) -> proc_macro::TokenStream {
+    let input: TokenStream = input.into();
+    let output = quote! {
+        #[derive(Debug, Serialize, Deserialize,Educe)]
+        #[educe(Default)]
+        #input
+    };
+    output.into()
 }
