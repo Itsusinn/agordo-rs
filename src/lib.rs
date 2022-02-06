@@ -70,6 +70,10 @@ pub fn auto_config_derive(input: proc_macro::TokenStream) -> proc_macro::TokenSt
             use linked_hash_map::LinkedHashMap;
 
             fn merge_hash(former: &LinkedHashMap<Yaml, Yaml>,latter: &LinkedHashMap<Yaml, Yaml>) -> anyhow::Result<LinkedHashMap<Yaml, Yaml>>{
+                // if it's empty hash
+                if latter.len() == 0 {
+                    return Ok(former.clone());
+                }
                 let mut res = latter.clone();
                 for section in latter {
                     match former.contains_key(section.0) {
