@@ -111,7 +111,7 @@ pub fn auto_config_derive(input: proc_macro::TokenStream) -> proc_macro::TokenSt
             let result = match result {
                Ok(val) => val,
                Err(_) => {
-                  let latter_string = Config::default_string();
+                  let latter_string = Self::default_string();
                   let reanme_path = format!("{}.old", path.clone().to_string_lossy());
                   log::warn!("无法对配置文件进行反序列化。");
                   log::warn!("这可能是由于版本更新导致的配置文件不兼容造成的。");
@@ -128,8 +128,16 @@ pub fn auto_config_derive(input: proc_macro::TokenStream) -> proc_macro::TokenSt
                   }
                   fs::rename(path, rename_path)?;
                   fs::write(path, res_string.clone())?;
-                  log::warn!("配置文件合并完成,但仍推荐检查配置文件");
-                  serde_yaml::from_slice(res_string.as_bytes()).unwrap()
+                  match serde_yaml::from_slice::<Self>(res_string.as_bytes()) {
+                      Err(_) => {
+                        log::warn!("配置文件合并失败,请手动合并配置文件");
+                        Self::default()
+                      }
+                      Ok(val) => {
+                        log::warn!("配置文件合并完成,但仍推荐检查配置文件");
+                        val
+                      }
+                  }
                }
             };
             Ok(result)
