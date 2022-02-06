@@ -1,5 +1,6 @@
 extern crate proc_macro;
 extern crate proc_macro2;
+
 use proc_macro2::Span;
 use quote::quote;
 use syn::{parse_macro_input, DeriveInput, Ident};
@@ -48,7 +49,6 @@ pub fn auto_config_derive(input: proc_macro::TokenStream) -> proc_macro::TokenSt
             let path:&str= #path_value;
             let path = Path::new(&path);
             let ser = serde_yaml::to_string(self).unwrap();
-            info!("Configuration file was saved");
             info!("配置文件已被保存");
             fs::create_dir_all(path.parent().unwrap_or(Path::new("./"))).unwrap();
             fs::write(path, ser).unwrap();
@@ -64,6 +64,40 @@ pub fn auto_config_derive(input: proc_macro::TokenStream) -> proc_macro::TokenSt
          fn read_or_create_config(path: &Path) -> Result<Self, anyhow::Error> {
             use std::fs;
             use log::error;
+            use yaml_rust::{YamlLoader, YamlEmitter};
+            use yaml_rust::Yaml;
+            use std::mem::discriminant;
+            use linked_hash_map::LinkedHashMap;
+
+            fn merge_hash(former: &LinkedHashMap<Yaml, Yaml>,latter: &LinkedHashMap<Yaml, Yaml>) -> anyhow::Result<LinkedHashMap<Yaml, Yaml>>{
+                let mut res = latter.clone();
+                for section in latter {
+                    match former.contains_key(section.0) {
+                        // if former dont's have this key
+                        false => {},
+                        // if former have this key, then merge
+                        true => {
+                            let former_value = former.get(section.0).unwrap().clone();
+                            let latter_value = section.1.clone();
+                            // if they are the same type, then merge
+                            if discriminant(&former_value) == discriminant(&latter_value){
+                                match latter_value.as_hash() {
+                                    // if it's hash type
+                                    Some(_) => {
+                                        let res_value = merge_hash(&former_value.as_hash().unwrap(), &latter_value.as_hash().unwrap())?;
+                                        res.insert(section.0.clone(), Yaml::Hash(res_value));
+                                    },
+                                    // if it's not a hash type
+                                    None => {
+                                        res.insert(section.0.clone(), former_value);
+                                    },
+                                }
+                            }
+                        },
+                    };
+                }
+                Ok(res)
+            }
             if !path.exists() {
                fs::create_dir_all(path.parent().unwrap_or(Path::new("./")))?;
                fs::write(path, Self::default_string())?;
@@ -73,31 +107,41 @@ pub fn auto_config_derive(input: proc_macro::TokenStream) -> proc_macro::TokenSt
             let result = match result {
                Ok(val) => val,
                Err(_) => {
-                  let default_string = Config::default_string();
+                  let latter_string = Config::default_string();
                   let reanme_path = format!("{}.old", path.clone().to_string_lossy());
-                  error!("Cannot de-serialize the configuration file.");
-                  error!("It may be caused by incompatible configuration files due to version updates.");
-                  error!("The original file has been changed to {}, please merge the configuration files manually.",reanme_path);
-                  error!("无法对配置文件进行反序列化。");
-                  error!("这可能是由于版本更新导致的配置文件不兼容造成的。");
-                  error!("原文件已被改为{}，请手动合并配置文件。",reanme_path);
+                  log::warn!("无法对配置文件进行反序列化。");
+                  log::warn!("这可能是由于版本更新导致的配置文件不兼容造成的。");
+                  log::warn!("原文件已被改为{}，正在尝试自动合并配置文件。",reanme_path);
                   let rename_path = Path::new(&reanme_path);
+                  let former_str = String::from_utf8_lossy(&data);
+                  let former = YamlLoader::load_from_str(&former_str).unwrap()[0].as_hash().unwrap().clone();
+                  let latter = YamlLoader::load_from_str(&latter_string).unwrap()[0].as_hash().unwrap().clone();
+                  let res = yaml_rust::Yaml::Hash(merge_hash(&former,&latter).unwrap());
+                  let mut res_string = String::new();
+                  {
+                      let mut emitter = YamlEmitter::new(&mut res_string);
+                      emitter.dump(&res).unwrap(); // dump the YAML object to a String
+                  }
                   fs::rename(path, rename_path)?;
-                  fs::write(path, default_string)?;
-                  Self::default()
+                  fs::write(path, res_string.clone())?;
+                  log::warn!("配置文件合并完成,但仍推荐检查配置文件");
+                  serde_yaml::from_slice(res_string.as_bytes()).unwrap()
                }
             };
             Ok(result)
         }
       }
    }.into();
-   proc_macro::TokenStream::from(expanded)
+    proc_macro::TokenStream::from(expanded)
 }
 
 use proc_macro2::TokenStream;
 
 #[proc_macro_attribute]
-pub fn basic_derive(_metadata: proc_macro::TokenStream, input: proc_macro::TokenStream) -> proc_macro::TokenStream {
+pub fn basic_derive(
+    _metadata: proc_macro::TokenStream,
+    input: proc_macro::TokenStream,
+) -> proc_macro::TokenStream {
     let input: TokenStream = input.into();
     let output = quote! {
         #[derive(Debug, Serialize, Deserialize,Educe)]
