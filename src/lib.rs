@@ -5,7 +5,7 @@ use proc_macro2::Span;
 use quote::quote;
 use syn::{parse_macro_input, DeriveInput, Ident};
 
-#[proc_macro_derive(AutoConfig, attributes(location))]
+#[proc_macro_derive(AutomaticConfig, attributes(location))]
 pub fn auto_config_derive(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
     let ast = parse_macro_input!(input as DeriveInput);
 
@@ -33,25 +33,20 @@ pub fn auto_config_derive(input: proc_macro::TokenStream) -> proc_macro::TokenSt
 
     let uppercase_indent = Ident::new(&ident.to_string().to_ascii_uppercase(), Span::call_site());
     let expanded: proc_macro2::TokenStream = quote! {
-      pub static #uppercase_indent: once_cell::sync::Lazy<#ident> = once_cell::sync::Lazy::new(|| {
-         use std::path::Path;
-         let path:&str= #path_value;
-         let path = Path::new(path);
-         let config = #ident::read_or_create_config(path).unwrap();
-         config
-     });
+      pub static #uppercase_indent: lateinit::LateInit<#ident> = lateinit::LateInit::new();
       impl #ident #generics #where_clause {
          #[allow(unused_variables)]
-         pub fn save(&self) {
+         pub async fn save(&self) -> anyhow::Result<()> {
             use std::path::Path;
-            use std::fs;
-            use log::info;
+            use tokio::fs;
+            use tracing::info;
             let path:&str= #path_value;
             let path = Path::new(&path);
-            let ser = serde_yaml::to_string(self).unwrap();
+            let ser = serde_yaml::to_string(self)?;
             info!("配置文件已被保存");
-            fs::create_dir_all(path.parent().unwrap_or(Path::new("./"))).unwrap();
-            fs::write(path, ser).unwrap();
+            fs::create_dir_all(path.parent().unwrap_or(Path::new("./"))).await?;
+            fs::write(path, ser).await?;
+            Ok(())
          }
          #[allow(unused_variables)]
          pub fn default_string() -> String {
@@ -61,9 +56,19 @@ pub fn auto_config_derive(input: proc_macro::TokenStream) -> proc_macro::TokenSt
            }
          }
          #[allow(unused_variables)]
-         fn read_or_create_config(path: &Path) -> Result<Self, anyhow::Error> {
-            use std::fs;
-            use log::error;
+         pub async fn reload() -> anyhow::Result<()> {
+            use std::path::Path;
+            let path:&str= #path_value;
+            let path = Path::new(&path);
+            let value = Self::reload_with_path(&path).await?;
+            #uppercase_indent.init(value);
+            Ok(())
+         }
+         #[allow(unused_variables)]
+         pub async fn reload_with_path(path: &std::path::Path) -> Result<Self,anyhow::Error> {
+            use tokio::fs;
+            use std::path::Path;
+            use tracing::warn;
             use yaml_rust::{YamlLoader, YamlEmitter};
             use yaml_rust::Yaml;
             use std::mem::discriminant;
@@ -103,19 +108,19 @@ pub fn auto_config_derive(input: proc_macro::TokenStream) -> proc_macro::TokenSt
                 Ok(res)
             }
             if !path.exists() {
-               fs::create_dir_all(path.parent().unwrap_or(Path::new("./")))?;
-               fs::write(path, Self::default_string())?;
+               fs::create_dir_all(path.parent().unwrap_or(Path::new("./"))).await?;
+               fs::write(path, Self::default_string()).await?;
             };
-            let data = fs::read(path)?;
+            let data = fs::read(path).await?;
             let result: Result<Self, serde_yaml::Error> = serde_yaml::from_slice(&data);
             let result = match result {
                Ok(val) => val,
                Err(_) => {
                   let latter_string = Self::default_string();
                   let reanme_path = format!("{}.old", path.clone().to_string_lossy());
-                  log::warn!("无法对配置文件进行反序列化。");
-                  log::warn!("这可能是由于版本更新导致的配置文件不兼容造成的。");
-                  log::warn!("原文件已被改为{}，正在尝试自动合并配置文件。",reanme_path);
+                  warn!("无法对配置文件进行反序列化。");
+                  warn!("这可能是由于版本更新导致的配置文件不兼容造成的。");
+                  warn!("原文件已被改为{}，正在尝试自动合并配置文件。",reanme_path);
                   let rename_path = Path::new(&reanme_path);
                   let former_str = String::from_utf8_lossy(&data);
                   let former = YamlLoader::load_from_str(&former_str).unwrap()[0].as_hash().unwrap().clone();
@@ -126,15 +131,15 @@ pub fn auto_config_derive(input: proc_macro::TokenStream) -> proc_macro::TokenSt
                       let mut emitter = YamlEmitter::new(&mut res_string);
                       emitter.dump(&res).unwrap(); // dump the YAML object to a String
                   }
-                  fs::rename(path, rename_path)?;
-                  fs::write(path, res_string.clone())?;
+                  fs::rename(path, rename_path).await?;
+                  fs::write(path, res_string.clone()).await?;
                   match serde_yaml::from_slice::<Self>(res_string.as_bytes()) {
                       Err(_) => {
-                        log::warn!("配置文件合并失败,请手动合并配置文件");
+                        warn!("配置文件合并失败,请手动合并配置文件");
                         Self::default()
                       }
                       Ok(val) => {
-                        log::warn!("配置文件合并完成,但仍推荐检查配置文件");
+                        warn!("配置文件合并完成,但仍推荐检查配置文件");
                         val
                       }
                   }
@@ -150,13 +155,13 @@ pub fn auto_config_derive(input: proc_macro::TokenStream) -> proc_macro::TokenSt
 use proc_macro2::TokenStream;
 
 #[proc_macro_attribute]
-pub fn basic_derive(
+pub fn config_derive(
     _metadata: proc_macro::TokenStream,
     input: proc_macro::TokenStream,
 ) -> proc_macro::TokenStream {
     let input: TokenStream = input.into();
     let output = quote! {
-        #[derive(Debug, Serialize, Deserialize,Educe)]
+        #[derive(Debug, serde::Serialize, serde::Deserialize,Educe)]
         #[educe(Default)]
         #input
     };
