@@ -36,7 +36,7 @@ pub fn auto_config_derive(input: proc_macro::TokenStream) -> proc_macro::TokenSt
       pub static #uppercase_indent: lateinit::LateInit<#ident> = lateinit::LateInit::new();
       impl #ident #generics #where_clause {
          #[allow(unused_variables)]
-         pub async fn save(&self) -> anyhow::Result<()> {
+         pub async fn save(&self) -> Result<()> {
             use std::path::Path;
             use tokio::fs;
             use tracing::info;
@@ -56,7 +56,7 @@ pub fn auto_config_derive(input: proc_macro::TokenStream) -> proc_macro::TokenSt
            }
          }
          #[allow(unused_variables)]
-         pub async fn reload() -> anyhow::Result<()> {
+         pub async fn reload() -> Result<()> {
             use std::path::Path;
             let path:&str= #path_value;
             let path = Path::new(&path);
@@ -65,7 +65,7 @@ pub fn auto_config_derive(input: proc_macro::TokenStream) -> proc_macro::TokenSt
             Ok(())
          }
          #[allow(unused_variables)]
-         pub async fn reload_with_path(path: &std::path::Path) -> Result<Self,anyhow::Error> {
+         pub async fn reload_with_path(path: &std::path::Path) -> Result<Self,Error> {
             use tokio::fs;
             use std::path::Path;
             use tracing::warn;
@@ -74,7 +74,7 @@ pub fn auto_config_derive(input: proc_macro::TokenStream) -> proc_macro::TokenSt
             use std::mem::discriminant;
             use linked_hash_map::LinkedHashMap;
 
-            fn merge_hash(former: &LinkedHashMap<Yaml, Yaml>,latter: &LinkedHashMap<Yaml, Yaml>) -> anyhow::Result<LinkedHashMap<Yaml, Yaml>>{
+            fn merge_hash(former: &LinkedHashMap<Yaml, Yaml>,latter: &LinkedHashMap<Yaml, Yaml>) -> Result<LinkedHashMap<Yaml, Yaml>>{
                 // if it's empty hash
                 if latter.len() == 0 {
                     return Ok(former.clone());
