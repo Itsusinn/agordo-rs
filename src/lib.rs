@@ -39,7 +39,7 @@ pub fn figment_wrapper_derive(input: proc_macro::TokenStream) -> proc_macro::Tok
             use tracing::info;
             let path:&str= #path_value;
             let path = Path::new(&path);
-            let ser = serde_yaml::to_string(self)?;
+            let ser = toml::to_string(self)?;
             info!("配置文件已被保存");
             fs::create_dir_all(path.parent().unwrap_or(Path::new("./"))).await?;
             fs::write(path, ser).await?;
@@ -47,9 +47,9 @@ pub fn figment_wrapper_derive(input: proc_macro::TokenStream) -> proc_macro::Tok
          }
          #[allow(unused_variables)]
          pub fn default_string() -> String {
-            match  serde_yaml::to_string(&Self::default()) {
+            match  toml::to_string(&Self::default()) {
                Ok(v) => v,
-               Err(_) => "serde_yaml error".to_string(),
+               Err(_) => "toml error".to_string(),
            }
          }
          #[allow(unused_variables)]
@@ -66,14 +66,14 @@ pub fn figment_wrapper_derive(input: proc_macro::TokenStream) -> proc_macro::Tok
             use tokio::fs;
             use std::path::Path;
             use tracing::warn;
-            use figment::{Figment, providers::{Serialized, Format, Yaml}};
+            use figment::{Figment, providers::{Serialized, Format, Toml}};
 
             if !path.exists() {
                fs::create_dir_all(path.parent().unwrap_or(Path::new("./"))).await?;
                fs::write(path, Self::default_string()).await?;
             };
             let config: Self = Figment::from(Serialized::defaults(Self::default()))
-                .merge(Yaml::file(path))
+                .merge(Toml::file(path))
                 .extract()?;
             Ok(config)
         }
